@@ -17,6 +17,12 @@ breadboard. The parts are a few dollars: an ESP32-S3 DevKitC-1 (about $6), the f
 > **Made by JunkSmithWizard (JSW) together with Claude (Anthropic's AI).** Claude wrote the firmware; JSW built
 > and debugged it on the bench (including finding the missing ground pin and the 5 V pin quirk below).
 
+> **Warning: never leave the ESP connected to the chip while it is in a synth.** Burn with the chip **out** of the
+> synth, then **unplug the chip from the breadboard / ESP wiring** before you put it in the card slot. If the ESP
+> stays wired to the address and data lines, its pins load and clamp the synth's 5 V bus, add noise, and can
+> back-power the board. Same rule the other way round: don't power the chip from both the ESP and the synth at once.
+> This is a prototype workflow; the planned PCB will isolate the ESP from the card bus.
+
 ## What it does
 
 - The ESP32-S3 drives the flash chip's address, data and write-enable lines directly from its 3.3 V GPIOs
