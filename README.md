@@ -134,3 +134,8 @@ reconnects afterwards.
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+> "Barely affording I2C is like barely affording a warehouse of beer."
+> — JSW
