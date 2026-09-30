@@ -1,0 +1,4 @@
+compile.log
+build/
+*.bin
+__pycache__/
