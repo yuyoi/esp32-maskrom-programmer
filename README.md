@@ -1,6 +1,6 @@
-# U110 HexWizard
+# ESP32 maskrom programmer
 
-*An ESP32 maskrom programmer.*
+> The Roland U-110 card version of this programmer is called **U110 HexWizard**.
 
 Turn an **ESP32-S3** and a **SST39SF040** (512 KB, 5 V parallel flash) into a rewritable ROM that you fill
 from a web page or over USB, in 10 to 20 seconds. Built to burn Roland U-110 sound cards
