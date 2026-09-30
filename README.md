@@ -5,6 +5,11 @@ from a web page or over USB, in 10 to 20 seconds. Built to burn Roland U-110 sou
 (see [U110 RomHex Studio](https://github.com/yuyoi/u110-romhex-studio)), but the programmer itself just writes a
 512 KB image into the chip.
 
+> **Status: working prototype.** It works on the bench (breadboard, one chip, one board type), but it is early:
+> the pin map is one tested layout, only the ESP32-S3 DevKitC-1 (N16R8) has been tried, there is no read-back
+> or verify in the firmware, and it needs a few manual quirks (see the power notes). Expect rough edges and
+> changes. A proper PCB is planned.
+
 **Verified on real hardware:** a full 512 KB card image was written and read back in a separate programmer
 with **0 wrong bytes out of 524,288**, with no level shifters, no series resistors and no decoupling caps on the
 breadboard. The parts are a few dollars: an ESP32-S3 DevKitC-1 (about $6), the flash chip, and jumper wires.
