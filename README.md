@@ -24,6 +24,8 @@ breadboard. The parts are a few dollars: an ESP32-S3 DevKitC-1 (about $6), the f
 - **Write only.** It erases the whole chip, then programs every byte that isn't `FF`. It never reads the chip
   back, so verify a burn in your normal programmer (or just try the card).
 - **Radio off while burning**: the WiFi radio is switched off during the erase and write, then comes back.
+- **Every byte is programmed twice** (`PROGRAM_TRIES` in the sketch) to catch stray missed bits on a marginal supply.
+- **Card info**: attach a short text (card name, tone names) to each image; the web page lists it.
 - Keeps up to about 17 images (512 KB each) in the ESP's flash. Pick one and burn it.
 
 ## Parts
@@ -98,6 +100,7 @@ Use the board's **UART** USB-C port. `firmware/hello` is a bring-up sketch that 
 pip install pyserial
 python tools/burn.py card.bin --burn        # send + erase + burn
 python tools/burn.py card.bin               # just store it on the programmer
+python tools/burn.py card.bin --burn --info "MY CARD: KICK, SNARE, HAT"   # with text for the web page
 python tools/burn.py --list                 # stored images
 python tools/burn.py --burn-stored card.bin # burn one already stored
 python tools/burn.py --delete card.bin
@@ -111,7 +114,7 @@ reconnects afterwards.
 
 ### USB protocol (921600 baud, line commands)
 
-`PING`, `LIST`, `DEL name`, `PUT name size crchex` (then raw data in 4 KB blocks, each acked with `K`), `BURN name`,
+`PING`, `LIST`, `DEL name`, `PUT name size crchex` (then raw data in 4 KB blocks, each acked with `K`), `TXT name len` (then `len` raw bytes of info text), `BURN name`,
 `STATUS`, `PIN A0..A18 | D0..D7 | WE | OFF`.
 
 ## Troubleshooting (what actually went wrong on the bench)
