@@ -22,6 +22,7 @@ static const uint8_t WE_PIN = 14;                                               
 // -------------------------------------------------------------------------------------------------------
 
 static const uint32_t IMAGE_SIZE = 512 * 1024;
+static const int PROGRAM_TRIES = 2;                       // program every byte this many times (catches stray missed bits)
 static const char *DIR_CARDS = "/cards";
 
 WebServer server(80);
@@ -66,8 +67,10 @@ static void chipErase() {
   delay(150);                                     // TSCE max 100 ms
 }
 static void byteProgram(uint32_t addr, uint8_t d) {
-  cmdUnlock(); busWrite(0x5555, 0xA0); busWrite(addr, d);
-  delayMicroseconds(25);                          // TBP max 20 us
+  for (int t = 0; t < PROGRAM_TRIES; t++) {
+    cmdUnlock(); busWrite(0x5555, 0xA0); busWrite(addr, d);
+    delayMicroseconds(25);                        // TBP max 20 us
+  }
 }
 
 // ---------------------------------------------------------------- radio off while burning (no RF noise / current spikes)
@@ -141,7 +144,7 @@ small{color:#8a96a0}</style></head><body>
 async function j(u){return (await fetch(u)).json()}
 async function refresh(){
   const l=await j('/list');let h='';
-  for(const c of l.cards)h+=`<div class=row><span>${c.name} <small>${(c.size/1024)|0} KB</small></span><span><button class=go onclick="burn('${c.name}')">Burn</button> <button onclick="del('${c.name}')">Delete</button></span></div>`;
+  for(const c of l.cards)h+=`<div class=row><span>${c.name} <small>${(c.size/1024)|0} KB</small>${c.info?'<br><small>'+c.info.replace(/</g,'&lt;')+'</small>':''}</span><span><button class=go onclick="burn('${c.name}')">Burn</button> <button onclick="del('${c.name}')">Delete</button></span></div>`;
   document.getElementById('list').innerHTML=h||'<small>none yet</small>';
   document.getElementById('st').textContent=l.free_kb+' KB free';
 }
@@ -162,6 +165,12 @@ async function wifi(){
 }
 refresh();poll();wifi();
 </script></body></html>)HTML";
+
+static String infoPath(String bin) { if (bin.endsWith(".bin")) bin = bin.substring(0, bin.length() - 4); return String(DIR_CARDS) + "/" + bin + ".txt"; }
+static String readInfo(const String &bin) {
+  File f = FFat.open(infoPath(bin), "r"); if (!f) return "";
+  String s; while (f.available() && s.length() < 1500) s += (char)f.read(); f.close(); return s;
+}
 
 static String cleanName(String n) {
   int s = max(n.lastIndexOf('/'), n.lastIndexOf('\\'));
@@ -238,8 +247,17 @@ static void handleCmd(String l) {
     for (File e = d.openNextFile(); e; e = d.openNextFile()) if (!e.isDirectory()) Serial.printf("FILE %s %u\n", e.name(), (unsigned)e.size());
     Serial.println("END");
   } else if (l.startsWith("DEL ")) {
-    FFat.remove(String(DIR_CARDS) + "/" + cleanName(l.substring(4)));
+    String n = cleanName(l.substring(4));
+    FFat.remove(String(DIR_CARDS) + "/" + n); FFat.remove(infoPath(n));
     Serial.println("OK");
+  } else if (l.startsWith("TXT ")) {                 // TXT name len, then len raw bytes: card info (name + tone names) shown on the web page
+    char nm[64]; unsigned len = 0;
+    if (sscanf(l.c_str() + 4, "%63s %u", nm, &len) == 2 && len > 0 && len <= 2048) {
+      static char buf[2049];
+      Serial.println("OK"); Serial.setTimeout(3000);
+      if (Serial.readBytes(buf, len) == len) { File f = FFat.open(infoPath(cleanName(nm)), "w"); if (f) { f.write((uint8_t *)buf, len); f.close(); } Serial.println("DONE"); }
+      else Serial.println("ERR timeout");
+    } else Serial.println("ERR args");
   } else if (l.startsWith("PUT ")) {
     char nm[64]; unsigned sz = 0, crc = 0;
     if (sscanf(l.c_str() + 4, "%63s %u %x", nm, &sz, &crc) == 3) serialPut(nm, sz, crc); else Serial.println("ERR args");
@@ -300,8 +318,10 @@ void setup() {
     File d = FFat.open(DIR_CARDS); bool first = true;
     for (File e = d.openNextFile(); e; e = d.openNextFile()) {
       if (e.isDirectory()) continue;
+      String nm = e.name(); if (!nm.endsWith(".bin")) continue;
       if (!first) o += ","; first = false;
-      o += "{\"name\":\"" + jsonEscape(e.name()) + "\",\"size\":" + String((unsigned)e.size()) + "}";
+      String info = readInfo(nm); info.replace("\r", ""); info.replace("\n", " | "); info.replace("\"", "'");
+      o += "{\"name\":\"" + jsonEscape(nm) + "\",\"size\":" + String((unsigned)e.size()) + ",\"info\":\"" + jsonEscape(info) + "\"}";
     }
     o += "],\"free_kb\":" + String((unsigned)(FFat.freeBytes() / 1024)) + "}";
     server.send(200, "application/json", o);
@@ -312,7 +332,7 @@ void setup() {
   }, handleUpload);
   server.on("/del", HTTP_GET, []() {
     String n = cleanName(server.arg("f"));
-    FFat.remove(String(DIR_CARDS) + "/" + n);
+    FFat.remove(String(DIR_CARDS) + "/" + n); FFat.remove(infoPath(n));
     server.send(200, "text/plain", "ok");
   });
   server.on("/burn", HTTP_GET, []() {

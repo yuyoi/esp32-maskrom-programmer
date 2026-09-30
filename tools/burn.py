@@ -46,7 +46,7 @@ def cmd(ser, text, prefix):
     return expect(ser, prefix)
 
 
-def put(ser, path):
+def put(ser, path, info=None):
     data = open(path, 'rb').read()
     if len(data) != 512 * 1024:
         sys.exit('%s is %d bytes, must be exactly 524288 (512 KB)' % (path, len(data)))
@@ -88,6 +88,7 @@ def main():
     ap.add_argument('file', nargs='?')
     ap.add_argument('--port')
     ap.add_argument('--burn', action='store_true')
+    ap.add_argument('--info', help='text shown next to the card on the web page (name, tone names)')
     ap.add_argument('--list', action='store_true')
     ap.add_argument('--burn-stored')
     ap.add_argument('--delete')
@@ -115,7 +116,7 @@ def main():
     elif a.burn_stored:
         sys.exit(0 if burn(ser, a.burn_stored) else 1)
     elif a.file:
-        name = put(ser, a.file)
+        name = put(ser, a.file, a.info)
         if a.burn:
             sys.exit(0 if burn(ser, name) else 1)
     else:
