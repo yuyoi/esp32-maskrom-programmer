@@ -135,6 +135,18 @@ reconnects afterwards.
 | Upload fails with a Windows semaphore error | You used the native USB port; use the UART one |
 | A handful of single missed bits | Marginal supply (4.5 V); use 5.0 V |
 
+## Built one? Tell us
+
+This is a prototype that has been tested on **one bench, one chip and one board type**. If you build any of it
+(or try a different ESP32 board, another SST part, or a different card format), please
+**[open an issue](https://github.com/yuyoi/esp32-maskrom-programmer/issues)** and tell us:
+
+- what you built and which board and chip you used,
+- what worked and what didn't (a photo of the wiring helps),
+- the readback result from your chip programmer, if you have one.
+
+Reports of failures are as useful as reports of successes.
+
 ## Related
 
 - [U110 RomHex Studio](https://github.com/yuyoi/u110-romhex-studio): builds the U-110 card images this burns.
