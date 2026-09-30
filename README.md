@@ -1,4 +1,6 @@
-# ESP32 maskrom programmer
+# U110 HexWizard
+
+*An ESP32 maskrom programmer.*
 
 Turn an **ESP32-S3** and a **SST39SF040** (512 KB, 5 V parallel flash) into a rewritable ROM that you fill
 from a web page or over USB, in 10 to 20 seconds. Built to burn Roland U-110 sound cards
@@ -42,6 +44,7 @@ breadboard. The parts are a few dollars: an ESP32-S3 DevKitC-1 (about $6), the f
 | SST39SF040 in a DIP-32 | 5 V, 512 K x 8 |
 | 5 V supply for the chip | see the power notes below |
 | About 28 jumper wires | breadboard is fine |
+| Optional: 0.96" SSD1306 I2C OLED | shows IP, burn progress, last card and its tone names (see below) |
 
 ## Wiring
 
@@ -88,6 +91,21 @@ USB end up, so the header order lines up with the chip.
   bottom of its range and cost us a few missed bits on one run).
 - GPIO48 (or GPIO38 on some boards) drives the onboard RGB LED, which flickers white while the address bus
   moves. Harmless.
+
+### Optional OLED display
+
+A 0.96" SSD1306 (I2C, address 0x3C or 0x3D) shows the IP address, burn progress, the last burned card, and the
+tone names attached to each stored card (long text scrolls). It needs the U8g2 library to compile.
+
+| OLED | ESP32-S3 |
+|---|---|
+| VCC | 3V3 |
+| GND | GND |
+| SDA | GPIO4 |
+| SCL | GPIO5 |
+
+Optional push button from **GPIO6 to GND**: cycles through the stored cards on the display. If no OLED is
+found, the firmware just runs without it.
 
 ## Build and flash
 

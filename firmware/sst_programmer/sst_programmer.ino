@@ -8,6 +8,9 @@
 #include <WebServer.h>
 #include <FFat.h>
 #include <Preferences.h>
+#include <Wire.h>
+#include <U8g2lib.h>
+#include <vector>
 #include <ESPmDNS.h>
 #include "esp_rom_crc.h"
 #include "soc/gpio_reg.h"
@@ -22,10 +25,12 @@ static const uint8_t WE_PIN = 14;                                               
 // -------------------------------------------------------------------------------------------------------
 
 static const uint32_t IMAGE_SIZE = 512 * 1024;
+static const int OLED_SDA = 4, OLED_SCL = 5, BTN_PIN = 6;  // 0.96" SSD1306 I2C display and an optional next-card button (to GND)
 static const int PROGRAM_TRIES = 2;                       // program every byte this many times (catches stray missed bits)
 static const char *DIR_CARDS = "/cards";
 
 WebServer server(80);
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE);
 
 // ---------------------------------------------------------------- bus
 static inline void putPins(const uint8_t *pins, int n, uint32_t v) {
@@ -89,6 +94,7 @@ static volatile int jobState = J_IDLE;
 static volatile uint32_t jobDone = 0;
 static char jobName[64] = "";
 static char jobMsg[80] = "";
+static String lastCard;                 // card burned last (kept across power cycles)
 
 static void burnTask(void *arg) {
   String path = String(DIR_CARDS) + "/" + jobName;
@@ -117,6 +123,7 @@ static void burnTask(void *arg) {
   if (addr == IMAGE_SIZE) { snprintf(jobMsg, sizeof jobMsg, "wrote %s in %lu s - verify in the T48", jobName, (unsigned long)((millis() - t0) / 1000)); st = J_DONE; }
   else { snprintf(jobMsg, sizeof jobMsg, "read error at %lu", (unsigned long)addr); st = J_ERROR; }
   radioOn();
+  if (st == J_DONE) { Preferences pr; pr.begin("state", false); pr.putString("last", jobName); pr.end(); lastCard = jobName; }
   jobState = st;
   Serial.println(jobMsg);
   vTaskDelete(NULL);
@@ -286,6 +293,108 @@ static void serialPoll() {
   }
 }
 
+// ---------------------------------------------------------------- OLED (0.96" SSD1306, I2C on GPIO4/5) + next-card button on GPIO6
+static bool oledOk = false;
+static int viewIdx = -1;                // -1 = last burned card, 0.. = browsing the stored cards with the button
+static uint32_t viewScrollAt = 0;
+static int viewScroll = 0;
+
+static String cardName(int i) {         // i-th stored .bin
+  File d = FFat.open(DIR_CARDS); int k = 0;
+  for (File e = d.openNextFile(); e; e = d.openNextFile()) {
+    String nm = e.name();
+    if (e.isDirectory() || !nm.endsWith(".bin")) continue;
+    if (k++ == i) return nm;
+  }
+  return "";
+}
+static int cardCount() {
+  File d = FFat.open(DIR_CARDS); int k = 0;
+  for (File e = d.openNextFile(); e; e = d.openNextFile()) { String nm = e.name(); if (!e.isDirectory() && nm.endsWith(".bin")) k++; }
+  return k;
+}
+
+static void wrapLines(const String &s, int cols, std::vector<String> &out) {
+  String line;
+  int i = 0, n = s.length();
+  while (i < n) {
+    int j = s.indexOf(' ', i); if (j < 0) j = n;
+    String w = s.substring(i, j);
+    while ((int)w.length() > cols) { if (line.length()) { out.push_back(line); line = ""; } out.push_back(w.substring(0, cols)); w = w.substring(cols); }
+    if ((int)(line.length() + w.length() + (line.length() ? 1 : 0)) > cols) { out.push_back(line); line = w; }
+    else line += (line.length() ? " " : "") + w;
+    i = j + 1;
+  }
+  if (line.length()) out.push_back(line);
+}
+
+static void drawScreen() {
+  if (!oledOk) return;
+  oled.clearBuffer();
+  oled.setFont(u8g2_font_5x8_tf);                                   // 25 columns x 8 rows
+  bool busy = (jobState == J_ERASING || jobState == J_WRITING);
+  if (busy) {
+    oled.drawStr(0, 8, "BURNING");
+    oled.drawStr(0, 19, String(jobName).substring(0, 25).c_str());
+    oled.drawStr(0, 30, jobState == J_ERASING ? "erasing chip..." : "writing...");
+    int pct = (int)((uint64_t)jobDone * 100 / IMAGE_SIZE);
+    oled.drawFrame(0, 38, 128, 12);
+    oled.drawBox(2, 40, (int)((uint64_t)jobDone * 124 / IMAGE_SIZE), 8);
+    char b[24]; snprintf(b, sizeof b, "%d%%  radio off", pct);
+    oled.drawStr(0, 62, b);
+  } else {
+    String ip = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+    oled.drawStr(0, 8, ("SST PROG " + ip).c_str());
+    oled.drawHLine(0, 10, 128);
+    String name; String tag;
+    int n = cardCount();
+    if (viewIdx >= 0 && viewIdx < n) { name = cardName(viewIdx); tag = "stored " + String(viewIdx + 1) + "/" + String(n); }
+    else { name = lastCard; tag = "last burned"; viewIdx = -1; }
+    if (!name.length()) { oled.drawStr(0, 24, "no card burned yet"); oled.drawStr(0, 34, (String(n) + " stored").c_str()); }
+    else {
+      oled.drawStr(0, 20, name.substring(0, 25).c_str());
+      oled.drawStr(0, 29, tag.c_str());
+      std::vector<String> lines; wrapLines(readInfo(name), 25, lines);
+      int visible = 3, total = (int)lines.size();
+      if (total > visible && millis() - viewScrollAt > 2500) { viewScrollAt = millis(); viewScroll = (viewScroll + visible) % total; }
+      if (total <= visible) viewScroll = 0;
+      for (int r = 0; r < visible && viewScroll + r < total; r++) oled.drawStr(0, 40 + r * 9, lines[viewScroll + r].c_str());
+    }
+    const char *st = jobState == J_DONE ? "DONE" : jobState == J_ERROR ? "ERROR" : "ready";
+    oled.drawHLine(0, 54, 128);
+    oled.drawStr(0, 63, st);
+    String fk = String((unsigned)(FFat.freeBytes() / 1024)) + "K free";
+    oled.drawStr(128 - fk.length() * 5, 63, fk.c_str());
+  }
+  oled.sendBuffer();
+}
+
+static void oledInit() {
+  Wire.setPins(OLED_SDA, OLED_SCL);
+  Wire.begin();
+  Wire.setClock(400000);
+  for (uint8_t a : {0x3C, 0x3D}) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) { oled.setI2CAddress(a << 1); oled.begin(); oledOk = true; Serial.printf("OLED found at 0x%02X\n", a); break; }
+  }
+  if (!oledOk) Serial.println("no OLED found (SDA GPIO4, SCL GPIO5)");
+  pinMode(BTN_PIN, INPUT_PULLUP);
+  Preferences p; p.begin("state", true); lastCard = p.getString("last", ""); p.end();
+}
+
+static void oledLoop() {
+  static uint32_t lastDraw = 0, lastBtn = 0;
+  if (digitalRead(BTN_PIN) == LOW && millis() - lastBtn > 300) {          // button: cycle through stored cards
+    lastBtn = millis();
+    int n = cardCount();
+    viewIdx = (viewIdx + 1 >= n) ? -1 : viewIdx + 1;
+    viewScroll = 0; viewScrollAt = millis();
+    lastDraw = 0;
+  }
+  bool busy = (jobState == J_ERASING || jobState == J_WRITING);
+  if (millis() - lastDraw > (busy ? 1000 : 500)) { lastDraw = millis(); drawScreen(); }
+}
+
 void setup() {
   Serial.setRxBufferSize(16384);
   Serial.begin(921600);
@@ -293,6 +402,7 @@ void setup() {
   initBus();
   if (!FFat.begin(true)) Serial.println("FFat mount failed");
   FFat.mkdir(DIR_CARDS);
+  oledInit();
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAP(AP_SSID, AP_PASS);
   Serial.printf("\nSST programmer: join WiFi '%s' (pw %s), open http://%s/\n", AP_SSID, AP_PASS, WiFi.softAPIP().toString().c_str());
@@ -352,6 +462,7 @@ void loop() {
   bool up = WiFi.status() == WL_CONNECTED;
   if (up != wasUp) { wasUp = up; if (up) Serial.printf("home WiFi up: http://%s/ or http://sstprog.local/\n", WiFi.localIP().toString().c_str()); }
   serialPoll();
+  oledLoop();
   server.handleClient();
   delay(1);
 }
