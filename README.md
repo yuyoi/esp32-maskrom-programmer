@@ -70,6 +70,8 @@ USB end up, so the header order lines up with the chip.
                        '----------------'
 ```
 
+> **Warning:** **disconnect the chip from the programmer (unplug it from this wiring) before you put it in the card slot.** An ESP left wired to the address and data lines loads and clamps the synth's 5 V bus, adds noise, and can back-power the board. Burn with the chip out of the synth; play with it out of the programmer.
+
 - Pin 1 of the chip is **A18** (not VPP as on 27C040 EPROMs).
 - **CE# to GND and OE# to +5 V** (we never read).
 - Join the chip's GND (pin 16) to the ESP's GND. **Pin 16 must be connected**: unpowered chips are
